@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL
 
@@ -23,99 +24,15 @@ def find_col(columns, candidates):
             return c
     return None
 
-def load_from_postgres():
-    with st.sidebar:
-        st.subheader("PostgreSQL қосылымы")
-        host = st.text_input("Host", value=os.getenv("PGHOST", "localhost"))
-        port = st.text_input("Port", value=os.getenv("PGPORT", "5432"))
-        database = st.text_input("Database", value=os.getenv("PGDATABASE", "customer_analytics"))
-        user = st.text_input("User", value=os.getenv("PGUSER", "postgres"))
-        password = st.text_input("Password", value=os.getenv("PGPASSWORD", ""), type="password")
+# CSV файлын автоматты оқу
+csv_path = Path(__file__).parent / "customer.csv.csv.gz"
 
-    if not password:
-        st.info("PostgreSQL паролін сол жақ панельге енгіз немесе CSV файлды жүкте.")
-        return None
-
-    try:
-        url = URL.create(
-            "postgresql+psycopg2",
-            username=user, password=password, host=host,
-            port=int(port), database=database
-        )
-        engine = create_engine(url)
-
-        # Үш кестені клиент ID арқылы біріктіреміз.
-        query = text("""
-            SELECT
-                cm."SK_ID_CURR",
-                cs.customer_segment,
-                cs.monetary_score,
-                cs.frequency_score,
-                cs.recency_score,
-                cs.risk_score,
-                cs.total_score,
-                a."CODE_GENDER",
-                a."NAME_FAMILY_STATUS",
-                a."NAME_EDUCATION_TYPE",
-                a."NAME_HOUSING_TYPE",
-                a."OCCUPATION_TYPE",
-                a."NAME_INCOME_TYPE",
-                a."ORGANIZATION_TYPE",
-                a."REGION_RATING_CLIENT",
-                a."REGION_POPULATION_RELATIVE",
-                a."FLAG_OWN_CAR",
-                a."FLAG_OWN_REALTY",
-                a."REG_CITY_NOT_LIVE_CITY",
-                a."REG_CITY_NOT_WORK_CITY",
-                a."LIVE_CITY_NOT_WORK_CITY",
-                a."AMT_INCOME_TOTAL",
-                a."AMT_CREDIT",
-                a."TARGET",
-                cm.monetary_value,
-                cm.frequency,
-                cm.average_loan_size,
-                cm.payment_count,
-                cm.recency_days,
-                cm.credit_count,
-                cm.overdue_over_30_count,
-                cm.max_overdue_days,
-                cm.overdue_over_30_pct,
-                cm.approved_credit_total,
-                cm.average_annuity
-            FROM public.customer_metrics AS cm
-            JOIN public.customer_segments AS cs
-                ON cm."SK_ID_CURR" = cs."SK_ID_CURR"
-            JOIN public.application_train AS a
-                ON cm."SK_ID_CURR" = a."SK_ID_CURR"
-        """)
-
-        with engine.connect() as conn:
-            df = pd.read_sql(query, conn)
-
-        st.sidebar.success(f"Үш кесте біріктірілді. Клиент саны: {len(df):,}")
-        return df
-
-    except Exception as e:
-        st.error("PostgreSQL-ге қосылу немесе үш кестені біріктіру сәтсіз аяқталды.")
-        st.warning(
-            "public схемасында customer_metrics, customer_segments және "
-            "application_train кестелері бар екенін, баған атауларын және "
-            "қосылым деректерін тексер."
-        )
-        st.code(str(e))
-        return None
-
-source = st.sidebar.radio("Дерек көзі", ["PostgreSQL", "CSV файл"])
-df = None
-if source == "CSV файл":
-    uploaded = st.sidebar.file_uploader("Дайын қорытынды кестені CSV ретінде жүкте", type=["csv"])
-    if uploaded:
-        try:
-            df = pd.read_csv(uploaded)
-        except Exception as e:
-            st.error(f"CSV оқу қатесі: {e}")
-else:
-    df = load_from_postgres()
+try:
+    df = pd.read_csv(csv_path, compression="gzip")
+    st.sidebar.success(f"Деректер жүктелді: {len(df):,} клиент")
+except Exception as e:
+    st.error(f"CSV файлын оқу қатесі: {e}")
+    st.stop()
 
 if df is None:
     st.markdown("""
